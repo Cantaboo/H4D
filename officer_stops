@@ -1,0 +1,143 @@
+# H4D
+
+
+
+/*TO-DO List*/
+/*1. keep only records where officer spent 50% or more time in that district*/
+/*2. make sure total count after is at least 20*/
+/*3. look at pct and total seizures as well as rate*/
+
+/*IDEAS*/
+/*1. consider race / complexion, seizures*/
+/*2. consider year*/
+
+
+proc sql; create table bopoA as
+	select distinct
+		dist	
+		,officer_id
+		,count(*) as total_officer_stops
+/*		,officer_stops_in_district*/
+/*		,officer_stops_in_district /count(*)  as pct_officer_stops_in_district*/
+	from bopo.bopo
+	group by officer_id
+/*	having officer_stops / count(*)  >=.5*/
+	order by total_officer_stops desc
+;
+
+proc sql; create table bopoB as
+	select distinct 		
+			a.officer_id
+			,a.dist
+			,count(*) as officer_stops_in_district
+			,b.total_officer_stops
+			,count(*)/b.total_officer_stops as pct_officer_stops_in_district format=comma20.3
+	from bopo.bopo as a
+	left join bopoA as b on a.officer_id = b.officer_id and a.dist = b.dist
+	where total_officer_stops >= 10
+	group by a.dist
+		,a.officer_id
+	having count(*) >=20
+		AND count(*)/b.total_officer_stops >= .5
+	order by total_officer_stops desc
+;
+
+
+
+;
+proc sql; create table bopo1 as
+
+select *
+/*		,officer_id*/
+		,count(*) as district_stops format=comma20.0
+		,count(*) / count(distinct(a.officer_id)) as avg_stops_per_district format=comma20.2
+from Bopo.bopo as a
+right join bopoB as b on a.dist = b.dist AND a.officer_id = b.officer_id
+group by a.dist
+/*		,officer_id*/
+
+		;
+
+proc sql; create table bopo2 as
+
+		select *
+				,count(*) as officer_stops format=comma20.0
+				,count(*) / district_stops as share_district_stops format=comma20.3
+				,count(*) / avg_stops_per_district as relative_stops_district format=comma20.2
+				,case when index(outcome,'S') then 1 else 0 end as Seizure_flag
+				,case when index(race_desc,'B') then 1 else 0 end as race_black
+				,case when index(race_desc,'W') then 1 else 0 end as race_white
+				,case when index(race_desc,'H') then 1 else 0 end as race_hispanic
+/*				,*/
+		from bopo1
+		group by dist
+				,officer_id
+/*		having count(*) >= 10*/
+		;
+
+
+
+
+
+proc sql; create table bopo3 as
+	select distinct
+		officer
+		,dist as district
+		,officer_id
+		,district_stops
+		,avg_stops_per_district
+		,officer_stops
+		,share_district_stops format=comma20.3
+		,relative_stops_district
+		,officer_stops*relative_stops_district as cross_district_weight
+		,count(*) as total_officer_stops
+		,officer_stops / count(*) as pct_officer_stops_in_district format=comma20.2
+		,sum(Seizure_flag) as sum_seizure
+		,sum(race_black) as sum_black
+		,sum(race_white) as sum_white
+		,sum(race_hispanic) as sum_hispanic
+	from bopo2
+	group by officer_id
+	
+	order by officer_id, district
+;
+
+proc sql; create table bopo3b as 
+select distinct officer_id 
+		,district 
+		,pct_officer_stops_in_district
+from bopo3 
+group by officer_id
+		,district
+;
+
+
+proc transpose data=bopo3b out=bopo3trans;
+by officer_id ;
+id district;
+run;
+
+proc sql; create table bopo4 as
+	select distinct
+		officer
+		,officer_id
+		,sum(officer_stops) as sum_officer_stops
+		,mean(avg_stops_per_district) as mean_avg_district_stops format=comma20.2
+		,sum(cross_district_weight)/sum(officer_stops) as avg_weight_relative_stops format=comma20.2
+		,mean(relative_stops_district) as avg_unweight_relative_stops format=comma20.2
+	from bopo3
+	group by officer_id
+;
+
+proc sql; create table bopo5 as
+	select a.*
+		,c.*
+		,b.*
+	from bopo3 as a
+	left join bopo3trans as b on a.officer_id = b.officer_id
+	left join bopo4 as c on a.officer_id = c.officer_id
+
+;
+	
+		
+
